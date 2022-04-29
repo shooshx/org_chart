@@ -27,7 +27,10 @@ const NODES_GRID_SIZE = 50
 function round_to(x, v) {
     return Math.round(x / v) * v
 }
-
+function assert(b, msg) {
+    if (!b)
+        throw new Error(msg)
+}
 
 
 class NodesView extends ViewBase
@@ -38,7 +41,7 @@ class NodesView extends ViewBase
 
         this.draw_nodes_rec = 0 // draw_connection is called from draw_nodes and from outside as well
 
-        this.nodes = []
+        this.model = null
 
         panel_mouse_control(this, canvas)
         panel_mouse_wheel(this, canvas)
@@ -96,7 +99,7 @@ class NodesView extends ViewBase
     
         // nodes
     
-        for(let n of this.nodes) {
+        for(let n of this.model.nodes) {
             n.draw(this.ctx);
         }
 
@@ -109,7 +112,7 @@ class NodesView extends ViewBase
     }
 
     find_obj(ev) {
-        for(let node of this.nodes) {
+        for(let node of this.model.nodes) {
             const hit = node.find_obj(ev)
             if (hit !== null)
                 return hit
@@ -134,9 +137,30 @@ class CallHandler
 
 const NODE_WIDTH = 150
 const NODE_HEIGHT = 60
-const OPEN_BTN_WIDTH = 20
-const OPEN_BTN_HEIGHT = 20
-const BTN_PLUS_OFFSET = 6
+const OPEN_BTN_WIDTH = 15
+const OPEN_BTN_HEIGHT = 15
+const BTN_PLUS_OFFSET = 5
+const BTN_OFFS = 3
+const CHILD_LINE_Y_OFFS = NODE_HEIGHT/2 + OPEN_BTN_HEIGHT/2 + BTN_OFFS
+const PARENT_LINE_Y_OFFS = NODE_HEIGHT/2
+const TEXT_MARGIN = {x:5, y:10}
+
+function draw_plus_btn(ctx, rect, plussed)
+{
+    ctx.fillStyle = "#dddddd"
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h)
+    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h)
+    ctx.beginPath()
+
+    ctx.moveTo(rect.cx - BTN_PLUS_OFFSET, rect.cy)
+    ctx.lineTo(rect.cx + BTN_PLUS_OFFSET, rect.cy)
+    if (plussed)
+    {
+        ctx.moveTo(rect.cx, rect.cy - BTN_PLUS_OFFSET)
+        ctx.lineTo(rect.cx, rect.cy + BTN_PLUS_OFFSET)
+    }
+    ctx.stroke()
+}
 
 class Node
 {
@@ -145,32 +169,96 @@ class Node
         this.id = id
         this.card = card
         this.parent = null
+        this.sibling_pos = null
         this.children = []
+        this.level = null
+        this.level_pos = null // my index in my level's nodes list
 
-        this.center = [0,0]
+        this.sibling_x = 0
+        this.center_offset = {x:0, y:0}
         this.visible = false
         this.children_open = false
+        this.parent_open = true
+        this.tree_width = 0   // width of the entire subtree starting with me
+    }
+
+    center() {
+        const ly = this.level.level_y()
+
+        return { x:this.center_offset.x + this.sibling_x, y:this.center_offset.y + ly }
     }
 
     set_visible(v) {
         this.visible = v
     }
+    set_visible_rec_children(v) {
+        this.visible = v
+        this.children_open = v
+        for(let c of this.children)
+            c.set_visible_rec_children(v)
+    }
+
+    set_visible_with_children(v) {
+        this.visible = v
+        this.children_open = v
+        for(let c of this.children)
+            c.set_visible(v)
+    }
+
+    set_invisible_rec_parent(except_node) {
+        this.visible = false
+        this.children_open = false
+        this.parent_open = false
+        for(let c of this.children)
+            if (c !== except_node)
+                c.set_visible_rec_children(false)
+        if (this.parent !== null)
+            this.parent.set_invisible_rec_parent(this) // exclude this since it was already taken care of and we don't want to revisit
+    }
 
     child_open_btn() {
-        const cx = this.center[0], cy = this.center[1]  + 30
+        const center = this.center()
+        const cx = center.x, cy = center.y  + NODE_HEIGHT/2 + BTN_OFFS
+        return {cx:cx, cy:cy, x:cx - OPEN_BTN_WIDTH/2, y:cy- OPEN_BTN_HEIGHT/2, w:OPEN_BTN_WIDTH, h:OPEN_BTN_HEIGHT}
+    }
+    parent_open_btn() {
+        const center = this.center()
+        const cx = center.x, cy = center.y  - NODE_HEIGHT/2 - BTN_OFFS
         return {cx:cx, cy:cy, x:cx - OPEN_BTN_WIDTH/2, y:cy- OPEN_BTN_HEIGHT/2, w:OPEN_BTN_WIDTH, h:OPEN_BTN_HEIGHT}
     }
 
     open_children() {
         this.children_open = !this.children_open
+        const v = this.children_open
+        if (v)
+            for(let c of this.children)
+                c.set_visible(v)
+        else                
+            for(let c of this.children)
+                c.set_visible_rec_children(v)
+    
 
-        nodes_view.redraw()
+        do_layout(nodes_view.model)
+
+    }
+    open_parent() {
+        this.parent_open = !this.parent_open
+        const v = this.parent_open
+        if (v) {
+            // open just the first level of children of the parent
+            this.parent.set_visible_with_children(true)
+        }
+        else
+            this.parent.set_invisible_rec_parent(this)
+
+        do_layout(nodes_view.model)
     }
 
     find_obj(ev) {
-        const child_open = this.child_open_btn()
-        if (rect_hit(ev.vx, ev.vy, child_open))
+        if (rect_hit(ev.vx, ev.vy, this.child_open_btn()))
             return new CallHandler(()=>{this.open_children()})
+        if (rect_hit(ev.vx, ev.vy, this.parent_open_btn()))
+            return new CallHandler(()=>{this.open_parent()}) 
         return null
     }
 
@@ -178,33 +266,127 @@ class Node
     {
         if (!this.visible)
             return
+        const center = this.center()
+
         ctx.strokeStyle = "#444444"
-        const top_y = this.center[0] - NODE_HEIGHT/2
-        const left_x = this.center[1] - NODE_WIDTH/2
+        ctx.fillStyle = "#f7f7f7"
+        const top_y = center.y - NODE_HEIGHT/2
+        const left_x = center.x - NODE_WIDTH/2
+        ctx.fillRect(left_x, top_y, NODE_WIDTH, NODE_HEIGHT)
         ctx.strokeRect(left_x, top_y, NODE_WIDTH, NODE_HEIGHT)
 
         ctx.font = "16px Verdana"
         ctx.fillStyle = "#000000"
-        ctx.fillText(this.card.name, left_x + 5, top_y + 5)
-        ctx.fillText(this.card.title, left_x + 5, top_y + 25)
+        ctx.fillText(this.card.name, left_x + TEXT_MARGIN.x, top_y + TEXT_MARGIN.y)
+        ctx.fillText(this.card.title, left_x + TEXT_MARGIN.x, top_y + 20 + TEXT_MARGIN.y)
 
-        const child_open = this.child_open_btn();
-        ctx.fillStyle = "#dddddd"
-        ctx.fillRect(child_open.x, child_open.y, child_open.w, child_open.h)
-        ctx.strokeRect(child_open.x, child_open.y, child_open.w, child_open.h)
-        ctx.beginPath()
-
-        ctx.moveTo(child_open.cx - BTN_PLUS_OFFSET, child_open.cy)
-        ctx.lineTo(child_open.cx + BTN_PLUS_OFFSET, child_open.cy)
-        if (!this.children_open)
+        // child open button
+        if (this.children.length > 0)
         {
-            ctx.moveTo(child_open.cx, child_open.cy - BTN_PLUS_OFFSET)
-            ctx.lineTo(child_open.cx, child_open.cy + BTN_PLUS_OFFSET)
+            draw_plus_btn(ctx, this.child_open_btn(), !this.children_open)
+
+        // lines to children
+            if (this.children_open && this.children.length > 0)
+            {
+                ctx.beginPath()
+                const h_line_y = center.y + LEVEL_Y_OFFSET / 2
+                ctx.moveTo(center.x, center.y + CHILD_LINE_Y_OFFS)
+                ctx.lineTo(center.x, h_line_y)
+                const c0_center = this.children[0].center(), cl_center = this.children[this.children.length - 1].center()
+                ctx.moveTo(c0_center.x, h_line_y)
+                ctx.lineTo(cl_center.x, h_line_y)
+                for(let c of this.children)
+                {
+                    assert(c.visible, "unexpected invisible child")
+                    const c_center = c.center()
+                    ctx.moveTo(c_center.x, h_line_y)
+                    ctx.lineTo(c_center.x, c_center.y - PARENT_LINE_Y_OFFS)
+
+                }
+                ctx.stroke()
+    
+            }
         }
-        ctx.stroke()
+        if (this.parent !== null)
+        {
+            draw_plus_btn(ctx, this.parent_open_btn(), this.parent_open)
+        }
+
     }
 }
 
+
+
+function do_layout(model)
+{
+    const measure_width = (node)=>{
+        let sum = 0
+        for(let c of node.children)
+            sum += measure_width(c)
+        if (!node.visible) {
+            node.tree_width = 0
+        }
+        else {
+            node.tree_width = (sum == 0) ? (NODE_WIDTH + 10) : sum
+        }
+
+        return node.tree_width
+    }
+    measure_width(model.root)
+
+    const position_sib = (node)=>{
+        //if (!node.visible)
+        //    return
+        
+        if (node.parent === null) 
+            node.sibling_x = 0
+        let x = node.center().x - node.tree_width / 2
+
+        for(let c of node.children) {
+            if (c.visible) {
+                c.sibling_x = x + c.tree_width / 2
+                x += c.tree_width
+            }
+            position_sib(c)
+        }
+
+    }
+    position_sib(model.root)
+    
+    nodes_view.redraw()
+}
+
+
+const LEVEL_Y_OFFSET = 120
+
+class Level
+{
+    constructor(idx, parent)
+    {
+        this.idx = idx
+        this.parent = parent
+        this.nodes = []
+        this.y_offset = (idx == 0) ? 0 : LEVEL_Y_OFFSET
+    }
+
+    level_y()
+    {
+        let py = 0;
+        if (this.parent !== null)
+            py = this.parent.level_y()
+        return py + this.y_offset
+    }
+}
+
+class Model
+{
+    constructor()
+    {
+        this.nodes = null
+        this.levels = null
+        this.root = null
+    }
+}
 
 
 class Card
@@ -221,7 +403,7 @@ class Card
 const cards_db = [
     new Card("Top Guy", "CEO", [1, 2]),
     new Card("Money Guy", "CFO", []),
-    new Card("Top Dev", "dev lead", [3, 4, 5]),
+    new Card("Top Dev", "dev lead", [3, 4, 5]), //, 5
     new Card("Dev One", "developer", []),
     new Card("Dev Two", "developer", []),
     new Card("Mid Man", "team lead", [6, 7]),
@@ -231,19 +413,44 @@ const cards_db = [
 
 function create_nodes(cards)
 {
-    const nodes = []
+    const model = new Model()
+    model.nodes = []
+    let id_gen = 0
     for(let card of cards)
-        nodes.push(new Node(card))
+        model.nodes.push(new Node(card, id_gen++))
     // connect children and parent
-    for(let node of nodes) 
+    for(let node of model.nodes) 
     {
+        let sib_idx = 0
         for(let cid of node.card.children_ids)
         {
-            node.children.push()
-            nodes[cid].parent = nodes[node.id]
+            node.children.push(model.nodes[cid])
+            model.nodes[cid].parent = model.nodes[node.id]
+            model.nodes[cid].sibling_pos = sib_idx++
         }
     }
-    return nodes
+    for(let node of model.nodes) {
+        if (node.parent === null) {
+            ///if (model.root !== null)
+            //    throw new Error("can't have more than one root")
+            model.root = node
+            break
+        }
+    }
+
+    model.levels = []
+    const set_level = (node, idx)=>{
+        if (model.levels[idx] === undefined)
+            model.levels[idx] = new Level(idx, (idx == 0) ? null : model.levels[idx - 1])
+        node.level = model.levels[idx]
+        node.level_pos = node.level.nodes.length
+        node.level.nodes.push(node)
+        for(let child of node.children)
+            set_level(child, idx + 1)
+    }
+    set_level(model.root, 0)
+
+    return model
 }
 
 
@@ -258,9 +465,9 @@ function page_onload()
 
     nodes_view = new NodesView(canvas_nodes)
 
-    nodes_view.nodes = create_nodes(cards_db)
-    nodes_view.nodes[0].set_visible(true)
+    nodes_view.model = create_nodes(cards_db)
+    nodes_view.model.nodes[0].set_visible(true)
 
-    nodes_view.pan_redraw()
+    nodes_view.redraw()
     
 }
