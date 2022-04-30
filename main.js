@@ -162,6 +162,9 @@ function draw_plus_btn(ctx, rect, plussed)
     ctx.stroke()
 }
 
+// this is used so that the node we're on would not move due to the root being hidden
+let global_x_shift = 0
+
 class Node
 {
     constructor(card, id)
@@ -185,7 +188,7 @@ class Node
     center() {
         const ly = this.level.level_y()
 
-        return { x:this.center_offset.x + this.sibling_x, y:this.center_offset.y + ly }
+        return { x:this.center_offset.x + this.sibling_x + global_x_shift, y:this.center_offset.y + ly }
     }
 
     set_visible(v) {
@@ -238,7 +241,7 @@ class Node
                 c.set_visible_rec_children(v)
     
 
-        do_layout(nodes_view.model)
+        do_layout(nodes_view.model, this)
 
     }
     open_parent() {
@@ -251,7 +254,7 @@ class Node
         else
             this.parent.set_invisible_rec_parent(this)
 
-        do_layout(nodes_view.model)
+        do_layout(nodes_view.model, this)
     }
 
     find_obj(ev) {
@@ -317,8 +320,11 @@ class Node
 
 
 
-function do_layout(model)
+function do_layout(model, stay_put_node)
 {
+    const stay_put_start = stay_put_node.center().x
+    global_x_shift = 0
+
     const measure_width = (node)=>{
         let sum = 0
         for(let c of node.children)
@@ -347,11 +353,14 @@ function do_layout(model)
                 c.sibling_x = x + c.tree_width / 2
                 x += c.tree_width
             }
+            else
+                c.sibling_x = 0
             position_sib(c)
         }
 
     }
     position_sib(model.root)
+    global_x_shift = stay_put_start - stay_put_node.center().x
     
     nodes_view.redraw()
 }
