@@ -137,6 +137,7 @@ class CallHandler
 
 const NODE_WIDTH = 150
 const NODE_HEIGHT = 60
+const NODE_MARGIN = 10
 const OPEN_BTN_WIDTH = 15
 const OPEN_BTN_HEIGHT = 15
 const BTN_PLUS_OFFSET = 5
@@ -144,6 +145,10 @@ const BTN_OFFS = 3
 const CHILD_LINE_Y_OFFS = NODE_HEIGHT/2 + OPEN_BTN_HEIGHT/2 + BTN_OFFS
 const PARENT_LINE_Y_OFFS = NODE_HEIGHT/2
 const TEXT_MARGIN = {x:5, y:10}
+
+const NAR_NODE_WIDTH = 100
+const NAR_NODE_HEIGHT = 40
+const NAR_NODE_MARGIN = 5
 
 function draw_plus_btn(ctx, rect, plussed)
 {
@@ -183,12 +188,21 @@ class Node
         this.children_open = false
         this.parent_open = true
         this.tree_width = 0   // width of the entire subtree starting with me
+
+        this.is_narrow = false
+        this.narrow_child = { count: 0, stack_height: 0 }
+        this.narrow_pos = { ix: 0, iy: 0 }
     }
 
     center() {
         const ly = this.level.level_y()
 
-        return { x:this.center_offset.x + this.sibling_x + global_x_shift, y:this.center_offset.y + ly }
+        const r = { x:this.center_offset.x + this.sibling_x + global_x_shift, y:this.center_offset.y + ly }
+        if (this.is_narrow) {
+            r.x += this.narrow_pos.ix * NAR_NODE_WIDTH
+            r.y += this.narrow_pos.iy * NAR_NODE_HEIGHT
+        }
+        return r
     }
 
     set_visible(v) {
@@ -218,6 +232,9 @@ class Node
         if (this.parent !== null)
             this.parent.set_invisible_rec_parent(this) // exclude this since it was already taken care of and we don't want to revisit
     }
+    set_narrow(v) {
+        this.is_narrow = v
+    }
 
     child_open_btn() {
         const center = this.center()
@@ -233,12 +250,16 @@ class Node
     open_children() {
         this.children_open = !this.children_open
         const v = this.children_open
-        if (v)
-            for(let c of this.children)
-                c.set_visible(v)
+        if (v) {
+            const is_many = this.children.length > 6
+            for(let c of this.children) {
+                c.set_visible(true)
+                c.set_narrow(is_many)
+            }
+        }
         else                
             for(let c of this.children)
-                c.set_visible_rec_children(v)
+                c.set_visible_rec_children(false)
     
 
         do_layout(nodes_view.model, this)
@@ -273,47 +294,64 @@ class Node
 
         ctx.strokeStyle = "#444444"
         ctx.fillStyle = "#f7f7f7"
-        const top_y = center.y - NODE_HEIGHT/2
-        const left_x = center.x - NODE_WIDTH/2
-        ctx.fillRect(left_x, top_y, NODE_WIDTH, NODE_HEIGHT)
-        ctx.strokeRect(left_x, top_y, NODE_WIDTH, NODE_HEIGHT)
-
-        ctx.font = "16px Verdana"
-        ctx.fillStyle = "#000000"
-        ctx.fillText(this.card.name, left_x + TEXT_MARGIN.x, top_y + TEXT_MARGIN.y)
-        ctx.fillText(this.card.title, left_x + TEXT_MARGIN.x, top_y + 20 + TEXT_MARGIN.y)
-
-        // child open button
-        if (this.children.length > 0)
+        if (this.is_narrow)
         {
-            draw_plus_btn(ctx, this.child_open_btn(), !this.children_open)
+            const top_y = center.y - NAR_NODE_HEIGHT/2
+            const left_x = center.x - NAR_NODE_WIDTH/2
+            ctx.fillRect(left_x, top_y, NAR_NODE_WIDTH, NAR_NODE_HEIGHT)
+            ctx.strokeRect(left_x, top_y, NAR_NODE_WIDTH, NAR_NODE_HEIGHT)
 
-        // lines to children
-            if (this.children_open && this.children.length > 0)
+            ctx.font = "14px Verdana"
+            ctx.fillStyle = "#000000"
+            ctx.fillText(this.card.name, left_x + TEXT_MARGIN.x, top_y + 4)
+            ctx.fillText(this.card.title, left_x + TEXT_MARGIN.x, top_y + 19 )
+        }
+        else
+        {
+            const top_y = center.y - NODE_HEIGHT/2
+            const left_x = center.x - NODE_WIDTH/2
+            ctx.fillRect(left_x, top_y, NODE_WIDTH, NODE_HEIGHT)
+            ctx.strokeRect(left_x, top_y, NODE_WIDTH, NODE_HEIGHT)
+
+            ctx.font = "16px Verdana"
+            ctx.fillStyle = "#000000"
+            ctx.fillText(this.card.name, left_x + TEXT_MARGIN.x, top_y + TEXT_MARGIN.y)
+            ctx.fillText(this.card.title, left_x + TEXT_MARGIN.x, top_y + 20 + TEXT_MARGIN.y)
+
+            // child open button
+            if (this.children.length > 0)
             {
-                ctx.beginPath()
-                const h_line_y = center.y + LEVEL_Y_OFFSET / 2
-                ctx.moveTo(center.x, center.y + CHILD_LINE_Y_OFFS)
-                ctx.lineTo(center.x, h_line_y)
-                const c0_center = this.children[0].center(), cl_center = this.children[this.children.length - 1].center()
-                ctx.moveTo(c0_center.x, h_line_y)
-                ctx.lineTo(cl_center.x, h_line_y)
-                for(let c of this.children)
-                {
-                    assert(c.visible, "unexpected invisible child")
-                    const c_center = c.center()
-                    ctx.moveTo(c_center.x, h_line_y)
-                    ctx.lineTo(c_center.x, c_center.y - PARENT_LINE_Y_OFFS)
+                draw_plus_btn(ctx, this.child_open_btn(), !this.children_open)
 
+            // lines to children
+                if (this.children_open && this.children.length > 0)
+                {
+                    ctx.beginPath()
+                    const h_line_y = center.y + LEVEL_Y_OFFSET / 2
+                    ctx.moveTo(center.x, center.y + CHILD_LINE_Y_OFFS)
+                    ctx.lineTo(center.x, h_line_y)
+                    const c0_center = this.children[0].center(), cl_center = this.children[this.children.length - 1].center()
+                    ctx.moveTo(c0_center.x, h_line_y)
+                    ctx.lineTo(cl_center.x, h_line_y)
+                    for(let c of this.children)
+                    {
+                        assert(c.visible, "unexpected invisible child")
+                        const c_center = c.center()
+                        ctx.moveTo(c_center.x, h_line_y)
+                        ctx.lineTo(c_center.x, c_center.y - PARENT_LINE_Y_OFFS)
+
+                    }
+                    ctx.stroke()
+        
                 }
-                ctx.stroke()
-    
             }
+            if (this.parent !== null)
+            {
+                draw_plus_btn(ctx, this.parent_open_btn(), this.parent_open)
+            }            
         }
-        if (this.parent !== null)
-        {
-            draw_plus_btn(ctx, this.parent_open_btn(), this.parent_open)
-        }
+
+
 
     }
 }
@@ -322,36 +360,81 @@ class Node
 
 function do_layout(model, stay_put_node)
 {
+    const count_narrow = (node)=>{
+        node.narrow_child.count = 0
+        for(let c of node.children) {
+            if (c.is_narrow)
+                ++node.narrow_child.count;
+            count_narrow(c)
+        }
+
+        if (node.narrow_child.count == 0)
+            return
+        // this would produce a cube with height 3 times its width
+        node.narrow_child.stack_height = Math.round(Math.sqrt(node.narrow_child.count*2))
+        node.narrow_child.stack_width = Math.ceil(node.narrow_child.count / node.narrow_child.stack_height)
+        let ix = 0, iy = 0
+        for(let c of node.children) {
+            if (!c.is_narrow) {
+                c.narrow_pos.ix = 0 
+                c.narrow_pos.iy = 0
+                continue
+            }
+            c.narrow_pos.ix = ix 
+            c.narrow_pos.iy = iy
+            ++iy
+            if (iy >= node.narrow_child.stack_height) {
+                iy = 0;
+                ++ix;
+            }
+        }
+    }
+    count_narrow(model.root)
+
     const stay_put_start = stay_put_node.center().x
     global_x_shift = 0
 
     const measure_width = (node)=>{
-        let sum = 0
-        for(let c of node.children)
-            sum += measure_width(c)
         if (!node.visible) {
             node.tree_width = 0
+        }        
+        if (node.narrow_child.count > 0) {
+            if (node.visible) {
+                if (node.children_open)
+                    node.tree_width = (node.narrow_child.stack_width) * NAR_NODE_WIDTH 
+                else
+                    node.tree_width = NODE_WIDTH + NODE_MARGIN
+            }
         }
         else {
-            node.tree_width = (sum == 0) ? (NODE_WIDTH + 10) : sum
+            let sum = 0
+            for(let c of node.children)
+                sum += measure_width(c)
+ 
+            if (node.visible) {
+                node.tree_width = (sum == 0) ? (NODE_WIDTH + NODE_MARGIN) : sum
+            }
         }
-
+        //console.log("width " + node.card.name + " " + node.tree_width)
         return node.tree_width
     }
+    //console.log("~~~~~");
     measure_width(model.root)
 
     const position_sib = (node)=>{
-        //if (!node.visible)
-        //    return
-        
+
         if (node.parent === null) 
             node.sibling_x = 0
         let x = node.center().x - node.tree_width / 2
 
         for(let c of node.children) {
             if (c.visible) {
-                c.sibling_x = x + c.tree_width / 2
-                x += c.tree_width
+                if (c.is_narrow)
+                    c.sibling_x = node.center().x - node.tree_width / 2 + NAR_NODE_WIDTH/2
+                else {
+                    c.sibling_x = x + c.tree_width / 2
+                    x += c.tree_width
+                }
             }
             else
                 c.sibling_x = 0
@@ -375,7 +458,7 @@ class Level
         this.idx = idx
         this.parent = parent
         this.nodes = []
-        this.y_offset = (idx == 0) ? 0 : LEVEL_Y_OFFSET
+        this.y_offset = (idx == 0) ? -200 : LEVEL_Y_OFFSET
     }
 
     level_y()
@@ -414,10 +497,21 @@ const cards_db = [
     new Card("Money Guy", "CFO", []),
     new Card("Top Dev", "dev lead", [3, 4, 5]), //, 5
     new Card("Dev One", "developer", []),
-    new Card("Dev Two", "developer", []),
+    new Card("Dev Two", "developer", [8,9,10,11,12,13,14,15,]), //16
     new Card("Mid Man", "team lead", [6, 7]),
     new Card("Low Man", "junior dev", []),
-    new Card("Low Woman", "junior dev", [])
+    new Card("Low Woman", "junior dev", []),  // 7
+
+    new Card("Pig 1", "pig", []),
+    new Card("Pig 2", "pig", []),
+    new Card("Pig 3", "pig", []),
+    new Card("Pig 4", "big pig", []),
+    new Card("Pig 5", "pig", []),
+    new Card("Pig 6", "pig", []),
+    new Card("Pig 7", "pig", []),
+    new Card("Pig 8", "pig", []),
+    //new Card("Pig 9", "pig", []),
+
 ]
 
 function create_nodes(cards)
@@ -476,6 +570,7 @@ function page_onload()
 
     nodes_view.model = create_nodes(cards_db)
     nodes_view.model.nodes[0].set_visible(true)
+   // nodes_view.model.root.center_offset = {x:0,y:-200}
 
     nodes_view.redraw()
     
