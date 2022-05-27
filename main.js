@@ -142,13 +142,16 @@ const OPEN_BTN_WIDTH = 15
 const OPEN_BTN_HEIGHT = 15
 const BTN_PLUS_OFFSET = 5
 const BTN_OFFS = 3
-const CHILD_LINE_Y_OFFS = NODE_HEIGHT/2 + OPEN_BTN_HEIGHT/2 + BTN_OFFS
+const CHILD_LINE_Y_OFFS = NODE_HEIGHT + OPEN_BTN_HEIGHT/2 + BTN_OFFS
 const PARENT_LINE_Y_OFFS = NODE_HEIGHT/2
 const TEXT_MARGIN = {x:5, y:10}
 
 const NAR_NODE_WIDTH = 100
 const NAR_NODE_HEIGHT = 40
 const NAR_NODE_MARGIN = 5
+
+const LEVEL_Y_OFFSET = 120
+
 
 function draw_plus_btn(ctx, rect, plussed)
 {
@@ -190,17 +193,19 @@ class Node
         this.tree_width = 0   // width of the entire subtree starting with me
 
         this.is_narrow = false
+        this.width = NODE_WIDTH
+        this.height = NODE_HEIGHT
         this.narrow_child = { count: 0, stack_height: 0 }
         this.narrow_pos = { ix: 0, iy: 0 }
     }
 
-    center() {
+    center() { // actually top center point of the node
         const ly = this.level.level_y()
 
         const r = { x:this.center_offset.x + this.sibling_x + global_x_shift, y:this.center_offset.y + ly }
         if (this.is_narrow) {
-            r.x += this.narrow_pos.ix * NAR_NODE_WIDTH
-            r.y += this.narrow_pos.iy * NAR_NODE_HEIGHT
+            r.x += this.narrow_pos.ix * (this.width + NAR_NODE_MARGIN)
+            r.y += this.narrow_pos.iy * (this.height + NAR_NODE_MARGIN)
         }
         return r
     }
@@ -234,16 +239,18 @@ class Node
     }
     set_narrow(v) {
         this.is_narrow = v
+        this.width = v ? NAR_NODE_WIDTH : NODE_WIDTH
+        this.height = v ? NAR_NODE_HEIGHT : NODE_HEIGHT
     }
 
     child_open_btn() {
         const center = this.center()
-        const cx = center.x, cy = center.y  + NODE_HEIGHT/2 + BTN_OFFS
+        const cx = center.x, cy = center.y  + this.height + BTN_OFFS
         return {cx:cx, cy:cy, x:cx - OPEN_BTN_WIDTH/2, y:cy- OPEN_BTN_HEIGHT/2, w:OPEN_BTN_WIDTH, h:OPEN_BTN_HEIGHT}
     }
     parent_open_btn() {
         const center = this.center()
-        const cx = center.x, cy = center.y  - NODE_HEIGHT/2 - BTN_OFFS
+        const cx = center.x, cy = center.y  - BTN_OFFS
         return {cx:cx, cy:cy, x:cx - OPEN_BTN_WIDTH/2, y:cy- OPEN_BTN_HEIGHT/2, w:OPEN_BTN_WIDTH, h:OPEN_BTN_HEIGHT}
     }
 
@@ -251,6 +258,7 @@ class Node
         this.children_open = !this.children_open
         const v = this.children_open
         if (v) {
+            this.set_narrow(false)
             const is_many = this.children.length > 6
             for(let c of this.children) {
                 c.set_visible(true)
@@ -294,25 +302,26 @@ class Node
 
         ctx.strokeStyle = "#444444"
         ctx.fillStyle = "#f7f7f7"
+
+        const top_y = center.y
+        const left_x = center.x - this.width/2
+        ctx.fillRect(left_x, top_y, this.width, this.height)
+        ctx.strokeRect(left_x, top_y, this.width, this.height)
+
         if (this.is_narrow)
         {
-            const top_y = center.y - NAR_NODE_HEIGHT/2
-            const left_x = center.x - NAR_NODE_WIDTH/2
-            ctx.fillRect(left_x, top_y, NAR_NODE_WIDTH, NAR_NODE_HEIGHT)
-            ctx.strokeRect(left_x, top_y, NAR_NODE_WIDTH, NAR_NODE_HEIGHT)
-
             ctx.font = "14px Verdana"
             ctx.fillStyle = "#000000"
             ctx.fillText(this.card.name, left_x + TEXT_MARGIN.x, top_y + 4)
             ctx.fillText(this.card.title, left_x + TEXT_MARGIN.x, top_y + 19 )
+
+            if (this.children.length > 0)
+            {
+                draw_plus_btn(ctx, this.child_open_btn(), !this.children_open)
+            }
         }
         else
         {
-            const top_y = center.y - NODE_HEIGHT/2
-            const left_x = center.x - NODE_WIDTH/2
-            ctx.fillRect(left_x, top_y, NODE_WIDTH, NODE_HEIGHT)
-            ctx.strokeRect(left_x, top_y, NODE_WIDTH, NODE_HEIGHT)
-
             ctx.font = "16px Verdana"
             ctx.fillStyle = "#000000"
             ctx.fillText(this.card.name, left_x + TEXT_MARGIN.x, top_y + TEXT_MARGIN.y)
@@ -327,7 +336,8 @@ class Node
                 if (this.children_open && this.children.length > 0)
                 {
                     ctx.beginPath()
-                    const h_line_y = center.y + LEVEL_Y_OFFSET / 2
+                    const h_line_y = center.y + this.height/2 + LEVEL_Y_OFFSET / 2
+                    // from parent
                     ctx.moveTo(center.x, center.y + CHILD_LINE_Y_OFFS)
                     ctx.lineTo(center.x, h_line_y)
                     const c0_center = this.children[0].center(), cl_center = this.children[this.children.length - 1].center()
@@ -338,7 +348,7 @@ class Node
                         assert(c.visible, "unexpected invisible child")
                         const c_center = c.center()
                         ctx.moveTo(c_center.x, h_line_y)
-                        ctx.lineTo(c_center.x, c_center.y - PARENT_LINE_Y_OFFS)
+                        ctx.lineTo(c_center.x, c_center.y)
 
                     }
                     ctx.stroke()
@@ -401,7 +411,7 @@ function do_layout(model, stay_put_node)
         if (node.narrow_child.count > 0) {
             if (node.visible) {
                 if (node.children_open)
-                    node.tree_width = (node.narrow_child.stack_width) * NAR_NODE_WIDTH 
+                    node.tree_width = (node.narrow_child.stack_width) * (NAR_NODE_WIDTH + NAR_NODE_MARGIN)
                 else
                     node.tree_width = NODE_WIDTH + NODE_MARGIN
             }
@@ -449,7 +459,6 @@ function do_layout(model, stay_put_node)
 }
 
 
-const LEVEL_Y_OFFSET = 120
 
 class Level
 {
@@ -483,7 +492,7 @@ class Model
 
 class Card
 {
-    constructor(name, title, child_ids)
+    constructor(name, title, child_ids=null)
     {
         this.name = name
         this.title = title
@@ -507,10 +516,13 @@ const cards_db = [
     new Card("Pig 3", "pig", []),
     new Card("Pig 4", "big pig", []),
     new Card("Pig 5", "pig", []),
-    new Card("Pig 6", "pig", []),
+    new Card("Pig 6", "pig", [16, 17]),
     new Card("Pig 7", "pig", []),
     new Card("Pig 8", "pig", []),
     //new Card("Pig 9", "pig", []),
+
+    new Card("Piglet 1", " a piglet"),
+    new Card("Piglet 2", " a piglet")
 
 ]
 
@@ -525,12 +537,13 @@ function create_nodes(cards)
     for(let node of model.nodes) 
     {
         let sib_idx = 0
-        for(let cid of node.card.children_ids)
-        {
-            node.children.push(model.nodes[cid])
-            model.nodes[cid].parent = model.nodes[node.id]
-            model.nodes[cid].sibling_pos = sib_idx++
-        }
+        if (node.card.children_ids !== null)
+            for(let cid of node.card.children_ids)
+            {
+                node.children.push(model.nodes[cid])
+                model.nodes[cid].parent = model.nodes[node.id]
+                model.nodes[cid].sibling_pos = sib_idx++
+            }
     }
     for(let node of model.nodes) {
         if (node.parent === null) {
