@@ -380,7 +380,7 @@ function do_layout(model, stay_put_node)
 
         if (node.narrow_child.count == 0)
             return
-        // this would produce a cube with height 3 times its width
+        // this would produce a cube with height 2 times its width
         node.narrow_child.stack_height = Math.round(Math.sqrt(node.narrow_child.count*2))
         node.narrow_child.stack_width = Math.ceil(node.narrow_child.count / node.narrow_child.stack_height)
         let ix = 0, iy = 0
@@ -405,26 +405,29 @@ function do_layout(model, stay_put_node)
     global_x_shift = 0
 
     const measure_width = (node)=>{
+        node.tree_width = 0
+        if (node.is_narrow)
+            return 0 // narrow nodes don't contribute to width, and this is a leaf so no need to go to children
         if (!node.visible) {
-            node.tree_width = 0
+            // still want to do children since top root may not be visible
+            for(let c of node.children)
+                measure_width(c)
+            return 0
         }        
         if (node.narrow_child.count > 0) {
-            if (node.visible) {
-                if (node.children_open)
-                    node.tree_width = (node.narrow_child.stack_width) * (NAR_NODE_WIDTH + NAR_NODE_MARGIN)
-                else
-                    node.tree_width = NODE_WIDTH + NODE_MARGIN
-            }
+            if (node.children_open)
+                node.tree_width = (node.narrow_child.stack_width) * (NAR_NODE_WIDTH + NAR_NODE_MARGIN)
+            else
+                node.tree_width = NODE_WIDTH + NODE_MARGIN
         }
-        else {
-            let sum = 0
-            for(let c of node.children)
-                sum += measure_width(c)
- 
-            if (node.visible) {
-                node.tree_width = (sum == 0) ? (NODE_WIDTH + NODE_MARGIN) : sum
-            }
-        }
+
+        let sum = 0
+        for(let c of node.children)
+            sum += measure_width(c)
+
+        node.tree_width += sum
+        node.tree_width = Math.max(node.tree_width, (NODE_WIDTH + NODE_MARGIN)) // visible node should have a minimum body if it doesn't have any children open
+
         //console.log("width " + node.card.name + " " + node.tree_width)
         return node.tree_width
     }
@@ -440,7 +443,7 @@ function do_layout(model, stay_put_node)
         for(let c of node.children) {
             if (c.visible) {
                 if (c.is_narrow)
-                    c.sibling_x = node.center().x - node.tree_width / 2 + NAR_NODE_WIDTH/2
+                    c.sibling_x = node.center().x - node.tree_width / 2 + (NAR_NODE_WIDTH + NAR_NODE_MARGIN)/2
                 else {
                     c.sibling_x = x + c.tree_width / 2
                     x += c.tree_width
@@ -506,7 +509,7 @@ const cards_db = [
     new Card("Money Guy", "CFO", []),
     new Card("Top Dev", "dev lead", [3, 4, 5]), //, 5
     new Card("Dev One", "developer", []),
-    new Card("Dev Two", "developer", [8,9,10,11,12,13,14,15,]), //16
+    new Card("Dev Two", "developer", [8,9,10,11,12,13,14,15]), //16
     new Card("Mid Man", "team lead", [6, 7]),
     new Card("Low Man", "junior dev", []),
     new Card("Low Woman", "junior dev", []),  // 7
