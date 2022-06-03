@@ -340,9 +340,9 @@ class Node
                     // from parent
                     ctx.moveTo(center.x, center.y + CHILD_LINE_Y_OFFS)
                     ctx.lineTo(center.x, h_line_y)
-                    const c0_center = this.children[0].center(), cl_center = this.children[this.children.length - 1].center()
-                    ctx.moveTo(c0_center.x, h_line_y)
-                    ctx.lineTo(cl_center.x, h_line_y)
+                    const [c_min_x, c_max_x] = min_max_center(this.children)
+                    ctx.moveTo(c_min_x, h_line_y)
+                    ctx.lineTo(c_max_x, h_line_y)
                     for(let c of this.children)
                     {
                         assert(c.visible, "unexpected invisible child")
@@ -361,9 +361,21 @@ class Node
             }            
         }
 
-
-
     }
+}
+
+function min_max_center(children)
+{
+    let min_v = children[0].center().x
+    let max_v = children[0].center().x
+    for(let c of children) {
+        const cx = c.center().x
+        if (cx > max_v)
+            max_v = cx
+        if (cx < min_v)
+            min_v = cx
+    }
+    return [min_v, max_v]
 }
 
 
@@ -442,9 +454,8 @@ function do_layout(model, stay_put_node)
 
         for(let c of node.children) {
             if (c.visible) {
-                if (c.is_narrow)
-                    c.sibling_x = node.center().x - node.tree_width / 2 + (NAR_NODE_WIDTH + NAR_NODE_MARGIN)/2
-                else {
+                if (!c.is_narrow)
+                {
                     c.sibling_x = x + c.tree_width / 2
                     x += c.tree_width
                 }
@@ -454,6 +465,10 @@ function do_layout(model, stay_put_node)
             position_sib(c)
         }
 
+        for(let c of node.children) {
+            if (c.visible && c.is_narrow)
+                c.sibling_x =  x + (NAR_NODE_WIDTH + NAR_NODE_MARGIN)/2
+        }
     }
     position_sib(model.root)
     global_x_shift = stay_put_start - stay_put_node.center().x
